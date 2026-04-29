@@ -1,0 +1,101 @@
+# Executables
+*.exe
+*.out
+*.app
+
+# Object files
+*.o
+*.obj
+
+# Shared libraries
+*.so
+*.dylib
+*.dll
+
+# Static libraries
+*.a
+*.lib
+
+# Build directories
+build/
+dist/
+bin/
+obj/
+
+# IDE files
+.vscode/
+*.vcxproj*
+*.sln
+*.user
+*.suo
+*.ncb
+*.opt
+*.plg
+
+# Debug files
+*.pdb
+*.ilk
+*.exp
+*.map
+*.dSYM/
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# Log files
+*.log
+
+# Core dumps
+core
+core.*
+
+# Cache directories
+.cache/
+__pycache__/
+*.pyc
+*.pyo
+
+# Test outputs
+test_results/
+coverage/
+*.gcov
+*.gcda
+*.gcno
+
+# Editor backup files
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# CMake build files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+
+# Package files
+*.tar.gz
+*.zip
+*.rar
+*.7z
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Generated documentation
+docs/_build/
+doxygen/
+
+# Performance profiling
+*.prof
+*.perf
+
+# Memory leak detection
+*.leak
+*.heap
