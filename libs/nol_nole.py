@@ -19,6 +19,10 @@ class Lexer:
     def __init__(self, input_str: str):
         self.input = input_str; self.pos = 0; self.line = 1; self.col = 1
         if len(input_str) > 10 * 1024 * 1024: raise NolError("Document size limit exceeded")
+        if '\0' in input_str: raise NolError("Null bytes are prohibited")
+        for c in input_str:
+            if 0xD800 <= ord(c) <= 0xDFFF: raise NolError("Surrogate code points are prohibited")
+
     def peek(self, n=0): return self.input[self.pos + n] if self.pos + n < len(self.input) else '\0'
     def advance(self):
         c = self.peek(); self.pos += 1
@@ -71,7 +75,7 @@ class Lexer:
                 if c == quote and self.peek(1) == quote and self.peek(2) == quote: self.advance(); self.advance(); self.advance(); break
             else:
                 if c == quote: self.advance(); break
-                if c == '\n': raise NolError("Newline in single-quoted string")
+                if c == '\n': raise NolError("Newline in string")
             if c == '\\' and quote == '"':
                 self.advance(); e = self.advance()
                 if e == '"': res.append('"')
@@ -82,7 +86,10 @@ class Lexer:
                 elif e == 't': res.append('\t')
                 elif e in ('u', 'U'):
                     n = 4 if e == 'u' else 8; u = "".join(self.advance() for _ in range(n))
-                    res.append(chr(int(u, 16)))
+                    cp = int(u, 16)
+                    if cp == 0: raise NolError("Null prohibited")
+                    if 0xD800 <= cp <= 0xDFFF: raise NolError("Surrogate prohibited")
+                    res.append(chr(cp))
                 else: raise NolError(f"Invalid escape: \\{e}")
             else: res.append(self.advance())
             if len(res) > 1024 * 1024: raise NolError("String length limit exceeded")
@@ -118,14 +125,21 @@ class Parser:
             else: self.error(f"Unexpected token: {self.cur.type}")
             if time.time() - self.start_time > 1.0: raise NolError("Parse timeout")
         if self.is_nole:
+            self.collect_env_allowlist(self.root)
             self.root = self.resolve_merges(self.root)
-            env_sec = self.root.get("_env")
-            if isinstance(env_sec, dict) and "allowed" in env_sec and isinstance(env_sec["allowed"], list):
-                self.doc_env_allowlist.update(env_sec["allowed"])
             self.root = self.resolve_env(self.root)
             self.root = self.resolve_interpolations(self.root)
             self.root = self.resolve_coercions(self.root)
         return self.root
+    def collect_env_allowlist(self, obj):
+        if isinstance(obj, dict):
+            if "_env" in obj and isinstance(obj["_env"], dict):
+                allowed = obj["_env"].get("allowed")
+                if isinstance(allowed, list):
+                    for a in allowed: self.doc_env_allowlist.add(str(a))
+            for v in obj.values(): self.collect_env_allowlist(v)
+        elif isinstance(obj, list):
+            for v in obj: self.collect_env_allowlist(v)
     def is_key_token(self): return self.cur.type in (Tok.Identifier, Tok.String, Tok.LShift)
     def parse_section(self):
         self.next()
@@ -170,7 +184,11 @@ class Parser:
             self.next(); t = self.cur.text; self.next(); self.next(); res = {"_coerce": {"type": t, "value": self.parse_value()}}
         elif self.cur.type == Tok.String: res = self.cur.text; self.next()
         elif self.cur.type == Tok.Number:
-            s = self.cur.text; self.next(); res = float(s) if ('.' in s or 'e' in s.lower()) else int(s)
+            s = self.cur.text; self.next()
+            try:
+                if '.' in s or 'e' in s.lower(): res = float(s)
+                else: res = int(s)
+            except ValueError: self.error(f"Invalid number: {s}")
         elif self.cur.type in (Tok.Date, Tok.True_, Tok.False_, Tok.Null):
             m = {Tok.Date: lambda x: x, Tok.True_: lambda x: True, Tok.False_: lambda x: False, Tok.Null: lambda x: None}
             res = m[self.cur.type](self.cur.text); self.next()
@@ -207,6 +225,8 @@ class Parser:
                 merges = val.pop("<<")
                 for m in merges:
                     resolved_m = self.resolve_merges(m, visited)
+                    if isinstance(resolved_m, str) and resolved_m.startswith("*"):
+                        resolved_m = self.resolve_merges(self.anchors.get(resolved_m[1:]), visited)
                     if not isinstance(resolved_m, dict): raise NolError("Can only merge objects")
                     for k, v in resolved_m.items():
                         if k not in val: val[k] = v
@@ -257,7 +277,11 @@ class Parser:
                 c = val["_coerce"]; v = self.resolve_coercions(c["value"]); t = c["type"]
                 if t == "int": return int(v)
                 if t == "float": return float(v)
-                if t == "bool": return v if isinstance(v, bool) else (True if str(v).lower() == "true" else False)
+                if t == "bool":
+                    if isinstance(v, bool): return v
+                    if str(v).lower() == "true": return True
+                    if str(v).lower() == "false": return False
+                    raise NolError(f"Invalid bool coercion: {v}")
                 if t == "string": return str(v)
                 raise NolError(f"Unknown coercion: {t}")
             for k in list(val.keys()): val[k] = self.resolve_coercions(val[k])
@@ -265,9 +289,16 @@ class Parser:
             for i in range(len(val)): val[i] = self.resolve_coercions(val[i])
         return val
 
-def parse(input_str: str, is_nole: bool = False, env_allowlist: List[str] = None) -> Dict[str, Any]:
-    return Parser(input_str, is_nole, env_allowlist).parse()
+class Document:
+    def __init__(self, root): self.root = root
+    def get(self, path=None):
+        if path is None: return self.root
+        curr = self.root
+        for p in path.split('.'):
+            if not isinstance(curr, dict) or p not in curr: return None
+            curr = curr[p]
+        return curr
+    @staticmethod
+    def parse(s, n=False, e=None): return Document(Parser(s, n, e).parse())
 
-def parse_file(path: str, env_allowlist: List[str] = None) -> Dict[str, Any]:
-    with open(path, 'r', encoding='utf-8') as f: content = f.read()
-    return parse(content, path.endswith('.nole'), env_allowlist)
+def parse(s, n=False, e=None): return Parser(s, n, e).parse()
