@@ -61,6 +61,51 @@ public:
     }
 };
 
+class Document {
+    Value _root;
+public:
+    Document(Value root) : _root(std::move(root)) {}
+    const Value* get(const std::string& path) const {
+        const Value* curr = &_root;
+        size_t s = 0, e;
+        while (true) {
+            e = path.find('.', s);
+            std::string p = path.substr(s, e - s);
+            if (!curr->isObject() || curr->asObject().find(p) == curr->asObject().end()) return nullptr;
+            curr = &curr->asObject().at(p);
+            if (e == std::string::npos) break;
+            s = e + 1;
+        }
+        return curr;
+    }
+    bool exists(const std::string& path) const { return get(path) != nullptr; }
+    const Value& data() const { return _root; }
+    std::string dump(int indent = 2) const { return _root.dump(indent, 0, true); }
+};
+
+class Builder {
+    Object _data;
+public:
+    Builder& set(const std::string& path, Value v) {
+        size_t s = 0, e;
+        Object* curr = &_data;
+        while (true) {
+            e = path.find('.', s);
+            std::string p = path.substr(s, e - s);
+            if (e == std::string::npos) {
+                (*curr)[p] = std::move(v);
+                break;
+            } else {
+                if (curr->find(p) == curr->end() || !(*curr)[p].isObject()) (*curr)[p] = Value(Object{});
+                curr = &std::get<Object>((*curr)[p].data);
+            }
+            s = e + 1;
+        }
+        return *this;
+    }
+    Document build() { return Document(Value(std::move(_data))); }
+};
+
 struct Parser {
     std::string text; size_t pos = 0; std::chrono::steady_clock::time_point start; int depth = 0;
     Parser(std::string t) : text(std::move(t)), start(std::chrono::steady_clock::now()) {}
@@ -82,6 +127,6 @@ struct Parser {
     Value parse() { Object root; while (pos < text.size()) { skip_ws(); if (!peek()) break; if (peek() == '[') { advance(); std::string path; while (peek() && peek() != ']') path += advance(); if (peek() == ']') advance(); size_t s = 0, e; Object* curr = &root; while (true) { e = path.find('.', s); std::string p = path.substr(s, e - s); bool last = (e == std::string::npos); if (curr->find(p) == curr->end()) (*curr)[p] = Value(Object{}); if (last) { parse_into(std::get<Object>((*curr)[p].data)); break; } curr = &std::get<Object>((*curr)[p].data); s = e + 1; } } else parse_pair(root); } return root; }
     void parse_into(Object& o) { while (pos < text.size()) { skip_ws(); if (peek() == '[' || !peek()) break; parse_pair(o); } }
 };
-inline Value parse(std::string text) { return Parser(std::move(text)).parse(); }
+inline Document parse(std::string text) { return Document(Parser(std::move(text)).parse()); }
 }
 #endif

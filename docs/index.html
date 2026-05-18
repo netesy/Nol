@@ -219,6 +219,33 @@ prod_db: {
             <hr class="border-slate-200 my-16">
 
             <!-- Implementations -->
+            <!-- Clean API -->
+            <section id="clean-api" class="section-anchor">
+                <h2 class="text-3xl font-bold text-slate-900 mb-8">Clean Programming API</h2>
+                <p class="text-slate-600 mb-8">All NOL/NOLE libraries provide a consistent API for reading and building documents.</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
+                    <div class="bg-slate-50 p-6 rounded-xl border border-slate-200">
+                        <h3 class="text-lg font-bold text-slate-800 mb-3">Document (Reading)</h3>
+                        <p class="text-sm text-slate-600 mb-4">Path-based access to nested data using dot-notation.</p>
+                        <pre class="text-xs"><code># Python Example
+doc = nol.parse(input_str)
+port = doc.get("server.port")
+if doc.exists("database"): ...</code></pre>
+                    </div>
+                    <div class="bg-slate-50 p-6 rounded-xl border border-slate-200">
+                        <h3 class="text-lg font-bold text-slate-800 mb-3">Builder (Writing)</h3>
+                        <p class="text-sm text-slate-600 mb-4">Fluent API for programmatically constructing configurations.</p>
+                        <pre class="text-xs"><code># JS Example
+const b = new nol.Builder();
+b.set("app.version", "1.0.0")
+ .set("server.port", 80);
+const doc = b.build();</code></pre>
+                    </div>
+                </div>
+            </section>
+
+            <hr class="border-slate-200 my-16">
             <section id="implementations" class="section-anchor mb-24">
                 <h2 class="text-3xl font-bold text-slate-900 mb-12">Multi-Language Implementations</h2>
 
@@ -232,9 +259,9 @@ prod_db: {
                         <p class="text-slate-600 mb-4">High-performance, object-oriented API using modern C++ features.</p>
                         <pre><code>#include "nole.hpp"
 
-auto res = NOLE::parse(input, true, {"VAR"});
-if (res.ok()) {
-    auto val = res.value.at("server.port");
+NOLE::Document doc = NOLE::parse(input, {"VAR"});
+if (doc.exists("server.port")) {
+    const NOLE::Value* val = doc.get("server.port");
     std::cout << val->asInt() << std::endl;
 }</code></pre>
                     </div>
@@ -249,10 +276,10 @@ if (res.ok()) {
                         <pre><code>#include "nole.h"
 
 char* allowed[] = {"VAR"};
-nol_val* doc = nole_parse(input, true, allowed, 1);
-nol_val* v = nole_at(doc, "key");
+nol_doc* doc = nole_parse(input, allowed, 1, NULL);
+nol_val* v = nol_doc_get(doc, "key");
 printf("%s\n", v->u.s);
-nole_free(doc);</code></pre>
+nol_doc_free(doc);</code></pre>
                     </div>
 
                     <!-- Python -->
@@ -264,7 +291,7 @@ nole_free(doc);</code></pre>
                         <p class="text-slate-600 mb-4">Idiomatic Python implementation returning standard dicts/lists.</p>
                         <pre><code>from nole import parse, Document
 
-doc = parse(input_str, n=True, e=["VAR"])
+doc = parse(input_str, app_env=["VAR"])
 print(doc['server']['port'])</code></pre>
                     </div>
 
@@ -277,7 +304,7 @@ print(doc['server']['port'])</code></pre>
                         <p class="text-slate-600 mb-4">Works in Node.js environments with full NOLE support.</p>
                         <pre><code>const { parse } = require('./nole.js');
 
-const doc = parse(input, true, ['VAR']);
+const doc = parse(input, ['VAR']);
 console.log(doc.server.port);</code></pre>
                     </div>
 
@@ -290,7 +317,7 @@ console.log(doc.server.port);</code></pre>
                         <p class="text-slate-600 mb-4">Safe, memory-efficient implementation using idiomatic Enums.</p>
                         <pre><code>use nole::{Document, Value};
 
-let doc = Document::parse(input, true, vec!["VAR".into()]).unwrap();
+let doc = nole::parse(input, vec!["VAR".into()]);
 if let Some(Value::Int(p)) = doc.get("server.port") {
     println!("{}", p);
 }</code></pre>
@@ -305,7 +332,7 @@ if let Some(Value::Int(p)) = doc.get("server.port") {
                         <p class="text-slate-600 mb-4">Namespaced implementation using stdClass and standard arrays.</p>
                         <pre><code>use Nole;
 
-$doc = Nole\parse($input, true, ['VAR']);
+$doc = Nole\parse($input, ['VAR' ]);
 echo $doc->server->port;</code></pre>
                     </div>
                 </div>

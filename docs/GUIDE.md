@@ -213,3 +213,41 @@ Use NOL when you want configs that are:
 * maintainable
 * production-safe
 
+
+---
+
+## Programming API
+
+All NOL libraries provide a clean API using `Document` and `Builder` classes.
+
+### Reading (Document)
+
+Use dot-notation to access nested values easily.
+
+```python
+doc = nol.parse(input_str)
+port = doc.get("server.port") # Returns 8080
+exists = doc.exists("database") # Returns true
+```
+
+### Writing (Builder)
+
+Programmatically create NOL documents.
+
+```python
+builder = nol.Builder()
+builder.set("app.name", "MyApp").set("server.port", 80)
+doc = builder.build()
+print(doc.dump())
+```
+
+### Language Specifics
+
+| Language | Get Value | Set Value |
+|----------|-----------|-----------|
+| C++      | `doc.get("a.b")->asInt()` | `builder.set("a.b", 1)` |
+| Python   | `doc.get("a.b")` | `builder.set("a.b", 1)` |
+| JS       | `doc.get("a.b")` | `builder.set("a.b", 1)` |
+| PHP      | `$doc->get("a.b")` | `$builder->set("a.b", 1)` |
+| Rust     | `doc.get("a.b")` | `builder.set("a.b", val)` |
+| C        | `nol_doc_get(d, "a.b")` | `nol_builder_set(b, "a.b", v)` |
