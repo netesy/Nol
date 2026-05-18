@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NOL & NOLE Specification</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        pre { background-color: #1e293b; color: #f8fafc; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
+        code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+        .section-anchor { padding-top: 5rem; margin-top: -5rem; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans antialiased">
+    <!-- Navigation -->
+    <nav class="fixed top-0 w-full bg-white/80 backdrop-blur-md border-b border-slate-200 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex items-center space-x-3">
+                    <div class="bg-indigo-600 text-white p-2 rounded-lg">
+                        <i class="fas fa-cube text-xl"></i>
+                    </div>
+                    <span class="text-xl font-bold tracking-tight">NOL / NOLE</span>
+                </div>
+                <div class="hidden md:flex space-x-8">
+                    <a href="#about" class="text-sm font-medium text-slate-600 hover:text-indigo-600 transition">About</a>
+                    <a href="#spec" class="text-sm font-medium text-slate-600 hover:text-indigo-600 transition">NOL Spec</a>
+                    <a href="#nole" class="text-sm font-medium text-slate-600 hover:text-indigo-600 transition">NOLE Extended</a>
+                    <a href="#implementations" class="text-sm font-medium text-slate-600 hover:text-indigo-600 transition">Implementations</a>
+                </div>
+                <a href="https://github.com" class="bg-slate-900 text-white px-4 py-2 rounded-full text-sm font-medium hover:bg-slate-800 transition flex items-center space-x-2">
+                    <i class="fab fa-github"></i>
+                    <span>GitHub</span>
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 flex">
+        <!-- Sidebar -->
+        <aside class="hidden lg:block w-64 fixed h-[calc(100vh-6rem)] overflow-y-auto pr-8">
+            <nav class="space-y-8">
+                <div>
+                    <h5 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Core Specification</h5>
+                    <ul class="space-y-3">
+                        <li><a href="#about" class="text-sm text-slate-600 hover:text-indigo-600">Overview</a></li>
+                        <li><a href="#encoding" class="text-sm text-slate-600 hover:text-indigo-600">Encoding</a></li>
+                        <li><a href="#syntax" class="text-sm text-slate-600 hover:text-indigo-600">Syntax & Types</a></li>
+                        <li><a href="#security" class="text-sm text-slate-600 hover:text-indigo-600">Security Limits</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h5 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">NOLE Extensions</h5>
+                    <ul class="space-y-3">
+                        <li><a href="#nole-eval" class="text-sm text-slate-600 hover:text-indigo-600">Evaluation Model</a></li>
+                        <li><a href="#env-vars" class="text-sm text-slate-600 hover:text-indigo-600">Environment Vars</a></li>
+                        <li><a href="#interpolation" class="text-sm text-slate-600 hover:text-indigo-600">Interpolation</a></li>
+                        <li><a href="#merges" class="text-sm text-slate-600 hover:text-indigo-600">Merges & Anchors</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h5 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Implementations</h5>
+                    <ul class="space-y-3">
+                        <li><a href="#impl-cpp" class="text-sm text-slate-600 hover:text-indigo-600">C++</a></li>
+                        <li><a href="#impl-c" class="text-sm text-slate-600 hover:text-indigo-600">C</a></li>
+                        <li><a href="#impl-python" class="text-sm text-slate-600 hover:text-indigo-600">Python</a></li>
+                        <li><a href="#impl-js" class="text-sm text-slate-600 hover:text-indigo-600">JavaScript</a></li>
+                        <li><a href="#impl-php" class="text-sm text-slate-600 hover:text-indigo-600">PHP</a></li>
+                        <li><a href="#impl-rust" class="text-sm text-slate-600 hover:text-indigo-600">Rust</a></li>
+                    </ul>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 lg:ml-72 max-w-3xl">
+            <!-- Header -->
+            <section id="about" class="section-anchor mb-16">
+                <h1 class="text-4xl font-extrabold text-slate-900 sm:text-5xl mb-6 leading-tight">
+                    NOL & NOLE <span class="text-indigo-600">Specification</span>
+                </h1>
+                <p class="text-xl text-slate-600 leading-relaxed mb-8">
+                    NOL (Notation Object Language) is a high-performance, strictly typed configuration language designed for security and predictability. NOLE extends it with controlled evaluation features.
+                </p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                        <i class="fas fa-shield-alt text-indigo-500 text-2xl mb-4"></i>
+                        <h3 class="font-bold mb-2">Secure by Default</h3>
+                        <p class="text-sm text-slate-500">Strict UTF-8 validation, no null bytes, and enforced depth/size limits.</p>
+                    </div>
+                    <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                        <i class="fas fa-bolt text-indigo-500 text-2xl mb-4"></i>
+                        <h3 class="font-bold mb-2">Fast & Deterministic</h3>
+                        <p class="text-sm text-slate-500">Predictable parsing with no side effects or hidden behaviors.</p>
+                    </div>
+                </div>
+            </section>
+
+            <hr class="border-slate-200 my-16">
+
+            <!-- NOL Specification -->
+            <section id="spec" class="section-anchor">
+                <h2 class="text-3xl font-bold text-slate-900 mb-8">NOL Core Specification</h2>
+
+                <div id="encoding" class="mb-12">
+                    <h3 class="text-xl font-bold text-slate-800 mb-4">1. Encoding & Validation</h3>
+                    <p class="text-slate-600 mb-4">All NOL files MUST be valid UTF-8. Parsers must reject:</p>
+                    <ul class="list-disc list-inside space-y-2 text-slate-600 ml-4 mb-4">
+                        <li>Null bytes (raw or escaped)</li>
+                        <li>UTF-16 surrogate pairs</li>
+                        <li>Overlong encodings</li>
+                    </ul>
+                    <div class="bg-indigo-50 border-l-4 border-indigo-400 p-4 rounded-r-lg">
+                        <p class="text-sm text-indigo-700 font-medium">Normalization: All keys are normalized to Unicode NFC for comparison.</p>
+                    </div>
+                </div>
+
+                <div id="syntax" class="mb-12">
+                    <h3 class="text-xl font-bold text-slate-800 mb-4">2. Syntax & Types</h3>
+                    <p class="text-slate-600 mb-4">NOL supports a rich set of static types:</p>
+                    <div class="space-y-6">
+                        <div>
+                            <h4 class="font-semibold text-slate-700 mb-2">Scalars</h4>
+                            <pre><code>name: "John Doe"      # String
+age: 30               # Integer
+pi: 3.14159           # Float
+active: true          # Boolean
+meta: null            # Null</code></pre>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-slate-700 mb-2">Sections & Nesting</h4>
+                            <pre><code>[server]
+host: "127.0.0.1"
+port: 8080
+
+[server.tls]
+enabled: true</code></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="security" class="mb-12">
+                    <h3 class="text-xl font-bold text-slate-800 mb-4">3. Security Limits</h3>
+                    <div class="overflow-hidden border border-slate-200 rounded-xl">
+                        <table class="min-w-full divide-y divide-slate-200 bg-white text-sm">
+                            <thead class="bg-slate-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left font-semibold text-slate-900">Constraint</th>
+                                    <th class="px-6 py-3 text-left font-semibold text-slate-900">Limit</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-200">
+                                <tr><td class="px-6 py-4 text-slate-600">Max File Size</td><td class="px-6 py-4 font-mono text-indigo-600">10 MB</td></tr>
+                                <tr><td class="px-6 py-4 text-slate-600">Max Nesting Depth</td><td class="px-6 py-4 font-mono text-indigo-600">100</td></tr>
+                                <tr><td class="px-6 py-4 text-slate-600">Max String Length</td><td class="px-6 py-4 font-mono text-indigo-600">1 MB</td></tr>
+                                <tr><td class="px-6 py-4 text-slate-600">Max Array Size</td><td class="px-6 py-4 font-mono text-indigo-600">100k elements</td></tr>
+                                <tr><td class="px-6 py-4 text-slate-600">Max Object Keys</td><td class="px-6 py-4 font-mono text-indigo-600">10k keys</td></tr>
+                                <tr><td class="px-6 py-4 text-slate-600">Parse Timeout</td><td class="px-6 py-4 font-mono text-indigo-600">1000 ms</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <hr class="border-slate-200 my-16">
+
+            <!-- NOLE Specification -->
+            <section id="nole" class="section-anchor">
+                <h2 class="text-3xl font-bold text-slate-900 mb-8">NOLE Extended Features</h2>
+                <p class="text-slate-600 mb-8">NOLE adds evaluated capabilities while maintaining strict safety controls.</p>
+
+                <div id="nole-eval" class="mb-12">
+                    <h3 class="text-xl font-bold text-slate-800 mb-4">Evaluation Order</h3>
+                    <p class="text-slate-600 mb-4">Evaluations MUST occur in this specific sequence:</p>
+                    <ol class="list-decimal list-inside space-y-2 text-slate-600 ml-4 font-medium">
+                        <li>Merge Resolution (<code class="bg-slate-200 px-1 rounded">&lt;&lt;</code>)</li>
+                        <li>Environment Variable Access</li>
+                        <li>Interpolation (<code class="bg-slate-200 px-1 rounded">${...}</code>)</li>
+                        <li>Type Coercion (<code class="bg-slate-200 px-1 rounded">&lt;type&gt;</code>)</li>
+                    </ol>
+                </div>
+
+                <div id="env-vars" class="mb-12">
+                    <h3 class="text-xl font-bold text-slate-800 mb-4">Environment Variables</h3>
+                    <p class="text-slate-600 mb-4">Uses a <strong>Dual Allowlist</strong> model. Access is only granted if the variable is in both the application and document allowlists.</p>
+                    <pre><code># Document level allowlist
+[_env]
+allowed: ["API_KEY", "DB_PORT"]
+
+# Usage
+database: {
+  port: { env: "DB_PORT" }
+}</code></pre>
+                </div>
+
+                <div id="interpolation" class="mb-12">
+                    <h3 class="text-xl font-bold text-slate-800 mb-4">Interpolation</h3>
+                    <p class="text-slate-600 mb-4">References local values using dot-notation paths.</p>
+                    <pre><code>base_url: "api.example.com"
+endpoint: "https://${base_url}/v1"</code></pre>
+                </div>
+
+                <div id="merges" class="mb-12">
+                    <h3 class="text-xl font-bold text-slate-800 mb-4">Anchors & Merges</h3>
+                    <p class="text-slate-600 mb-4">Define templates and reuse them to reduce duplication.</p>
+                    <pre><code>base_db: &db {
+  host: "localhost"
+  port: 5432
+}
+
+prod_db: {
+  <<: *db
+  host: "db.production"
+}</code></pre>
+                </div>
+            </section>
+
+            <hr class="border-slate-200 my-16">
+
+            <!-- Implementations -->
+            <section id="implementations" class="section-anchor mb-24">
+                <h2 class="text-3xl font-bold text-slate-900 mb-12">Multi-Language Implementations</h2>
+
+                <div class="space-y-16">
+                    <!-- C++ -->
+                    <div id="impl-cpp">
+                        <div class="flex items-center space-x-3 mb-4">
+                            <span class="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold uppercase">C++17</span>
+                            <h3 class="text-2xl font-bold text-slate-800">C++ Implementation</h3>
+                        </div>
+                        <p class="text-slate-600 mb-4">High-performance, object-oriented API using modern C++ features.</p>
+                        <pre><code>#include "nole.hpp"
+
+auto res = NOLE::parse(input, true, {"VAR"});
+if (res.ok()) {
+    auto val = res.value.at("server.port");
+    std::cout << val->asInt() << std::endl;
+}</code></pre>
+                    </div>
+
+                    <!-- C -->
+                    <div id="impl-c">
+                        <div class="flex items-center space-x-3 mb-4">
+                            <span class="bg-slate-200 text-slate-700 px-3 py-1 rounded-full text-xs font-bold uppercase">C99</span>
+                            <h3 class="text-2xl font-bold text-slate-800">C Implementation</h3>
+                        </div>
+                        <p class="text-slate-600 mb-4">Header-only library with no dependencies beyond libc.</p>
+                        <pre><code>#include "nole.h"
+
+char* allowed[] = {"VAR"};
+nol_val* doc = nole_parse(input, true, allowed, 1);
+nol_val* v = nole_at(doc, "key");
+printf("%s\n", v->u.s);
+nole_free(doc);</code></pre>
+                    </div>
+
+                    <!-- Python -->
+                    <div id="impl-python">
+                        <div class="flex items-center space-x-3 mb-4">
+                            <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold uppercase">Python 3.8+</span>
+                            <h3 class="text-2xl font-bold text-slate-800">Python Implementation</h3>
+                        </div>
+                        <p class="text-slate-600 mb-4">Idiomatic Python implementation returning standard dicts/lists.</p>
+                        <pre><code>from nole import parse, Document
+
+doc = parse(input_str, n=True, e=["VAR"])
+print(doc['server']['port'])</code></pre>
+                    </div>
+
+                    <!-- JS -->
+                    <div id="impl-js">
+                        <div class="flex items-center space-x-3 mb-4">
+                            <span class="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-xs font-bold uppercase">Node.js</span>
+                            <h3 class="text-2xl font-bold text-slate-800">JavaScript Implementation</h3>
+                        </div>
+                        <p class="text-slate-600 mb-4">Works in Node.js environments with full NOLE support.</p>
+                        <pre><code>const { parse } = require('./nole.js');
+
+const doc = parse(input, true, ['VAR']);
+console.log(doc.server.port);</code></pre>
+                    </div>
+
+                    <!-- Rust -->
+                    <div id="impl-rust">
+                        <div class="flex items-center space-x-3 mb-4">
+                            <span class="bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-xs font-bold uppercase">Rust</span>
+                            <h3 class="text-2xl font-bold text-slate-800">Rust Implementation</h3>
+                        </div>
+                        <p class="text-slate-600 mb-4">Safe, memory-efficient implementation using idiomatic Enums.</p>
+                        <pre><code>use nole::{Document, Value};
+
+let doc = Document::parse(input, true, vec!["VAR".into()]).unwrap();
+if let Some(Value::Int(p)) = doc.get("server.port") {
+    println!("{}", p);
+}</code></pre>
+                    </div>
+
+                    <!-- PHP -->
+                    <div id="impl-php">
+                        <div class="flex items-center space-x-3 mb-4">
+                            <span class="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-xs font-bold uppercase">PHP 7.4+</span>
+                            <h3 class="text-2xl font-bold text-slate-800">PHP Implementation</h3>
+                        </div>
+                        <p class="text-slate-600 mb-4">Namespaced implementation using stdClass and standard arrays.</p>
+                        <pre><code>use Nole;
+
+$doc = Nole\parse($input, true, ['VAR']);
+echo $doc->server->port;</code></pre>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-slate-200 py-12">
+        <div class="max-w-7xl mx-auto px-4 text-center">
+            <p class="text-slate-400 text-sm">© 2024 NOL/NOLE Specification. Released under MIT License.</p>
+        </div>
+    </footer>
+</body>
+</html>
