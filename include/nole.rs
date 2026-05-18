@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 use std::time::{Instant, Duration};
-use std::env;
+use std::{env};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NolValue {
@@ -19,12 +19,64 @@ impl NolValue {
             NolValue::Object(o) => {
                 let pad = " ".repeat(level * indent); let next_pad = " ".repeat((level + 1) * indent);
                 let mut lines = Vec::new();
-                for (k, v) in o { if k.starts_with('_') && !["_env", "_interpolate", "_meta"].contains(&k.as_str()) { continue; } let val = v.dump(indent, level + 1, false); if is_root { lines.push(format!("{}: {}", k, val)); } else { lines.push(format!("\n{}{}: {}", next_pad, k, val)); } }
+                for (k, v) in o { if k.starts_with('_') { continue; } let val = v.dump(indent, level + 1, false); if is_root { lines.push(format!("{}: {}", k, val)); } else { lines.push(format!("\n{}{}: {}", next_pad, k, val)); } }
                 if is_root { return lines.join("\n"); } if o.is_empty() { return "{}".to_string(); }
                 format!("{{{}\n{}}}", lines.join(","), pad)
             }
         }
     }
+}
+
+pub struct Document {
+    pub root: NolValue,
+}
+
+impl Document {
+    pub fn get(&self, path: &str) -> Option<&NolValue> {
+        let parts: Vec<&str> = path.split('.').collect();
+        let mut curr = &self.root;
+        for (i, p) in parts.iter().enumerate() {
+            match curr {
+                NolValue::Object(o) => {
+                    if i == parts.len() - 1 {
+                        return o.get(*p);
+                    } else {
+                        match o.get(*p) {
+                            Some(v) => curr = v,
+                            None => return None,
+                        }
+                    }
+                }
+                _ => return None,
+            }
+        }
+        None
+    }
+    pub fn exists(&self, path: &str) -> bool { self.get(path).is_some() }
+}
+
+pub struct Builder {
+    pub root: BTreeMap<String, NolValue>,
+}
+
+impl Builder {
+    pub fn new() -> Self { Self { root: BTreeMap::new() } }
+    pub fn set(mut self, path: &str, value: NolValue) -> Self {
+        let parts: Vec<String> = path.split('.').map(|s| s.to_string()).collect();
+        let mut curr = &mut self.root;
+        for p in parts.iter().take(parts.len() - 1) {
+            if !curr.contains_key(p) || !matches!(curr.get(p), Some(NolValue::Object(_))) {
+                curr.insert(p.clone(), NolValue::Object(BTreeMap::new()));
+            }
+            curr = match curr.get_mut(p).unwrap() {
+                NolValue::Object(o) => o,
+                _ => unreachable!(),
+            };
+        }
+        curr.insert(parts.last().unwrap().clone(), value);
+        self
+    }
+    pub fn build(self) -> Document { Document { root: NolValue::Object(self.root) } }
 }
 
 pub struct NolParser<'a> { text: &'a str, pos: usize, start: Instant, depth: usize, nole: bool }
@@ -40,15 +92,20 @@ impl<'a> NolParser<'a> {
         self.skip_ws(); if self.start.elapsed() > Duration::from_secs(1) { panic!("Timeout"); } self.depth += 1; if self.depth > 100 { panic!("Depth"); }
         let c = self.peek().expect("EOF");
         let res = match c {
-            '{' => { self.advance(); let mut o = BTreeMap::new(); while let Some(_) = self.peek() { self.skip_ws(); if self.peek() == Some('}') { self.advance(); break; } self.parse_pair(&mut o); self.skip_ws(); if self.peek() == Some(',') { self.advance(); } } NolValue::Object(o) }
+            '{' => { self.advance(); let mut o = BTreeMap::new(); while let Some(_) = self.peek() { self.skip_ws(); if self.peek() == Some('}') { self.advance(); break; } self.parse_pair(&mut o); self.skip_ws() ; if self.peek() == Some(',') { self.advance(); } } NolValue::Object(o) }
             '[' => { self.advance(); let mut a = Vec::new(); while let Some(_) = self.peek() { self.skip_ws(); if self.peek() == Some(']') { self.advance(); break; } a.push(self.parse_value()); self.skip_ws(); if self.peek() == Some(',') { self.advance(); } } NolValue::Array(a) }
-            '"' | '\'' => { let q = self.advance().unwrap(); NolValue::String(self.read_str(q)) }
-            '&' | '*' | '<' if self.nole => {
-                let op = self.advance().unwrap();
-                if op == '<' { if self.peek() == Some('<') { self.pos -= 1; self.depth -= 1; return NolValue::Null; } let mut t = String::new(); while let Some(c) = self.peek() { if c == '>' { break; } t.push(self.advance().unwrap()); } if self.peek() == Some('>') { self.advance(); } let val = self.parse_value(); let mut ci = BTreeMap::new(); ci.insert("type".to_string(), NolValue::String(t)); ci.insert("value".to_string(), val); let mut co = BTreeMap::new(); co.insert("_coerce".to_string(), NolValue::Object(ci)); NolValue::Object(co) }
-                else if op == '*' { let mut n = String::new(); while let Some(c) = self.peek() { if c.is_alphanumeric() || c == '_' || c == '-' { n.push(self.advance().unwrap()); } else { break; } } NolValue::String(format!("*{}", n)) }
-                else { let mut n = String::new(); while let Some(c) = self.peek() { if c.is_alphanumeric() || c == '_' || c == '-' { n.push(self.advance().unwrap()); } else { break; } } let val = self.parse_value(); let mut ai = BTreeMap::new(); ai.insert("name".to_string(), NolValue::String(n)); ai.insert("value".to_string(), val); let mut an = BTreeMap::new(); an.insert("_anchor".to_string(), NolValue::Object(ai)); NolValue::Object(an) }
+            '*' | '<' if self.nole => {
+                let t = self.advance().unwrap();
+                if t == '<' {
+                    let mut b = String::new(); while let Some(c) = self.peek() { if c == '>' { self.advance(); break; } b.push(self.advance().unwrap()); }
+                    let mut mo = BTreeMap::new(); mo.insert("type".to_string(), NolValue::String(b)); mo.insert("value".to_string(), self.parse_value());
+                    let mut res = BTreeMap::new(); res.insert("_coerce".to_string(), NolValue::Object(mo)); NolValue::Object(res)
+                } else {
+                    let mut b = String::new(); while let Some(c) = self.peek() { if c.is_alphanumeric() || c == '_' || c == '-' { b.push(self.advance().unwrap()); } else { break; } }
+                    NolValue::String(format!("*{}", b))
+                }
             }
+            '"' | '\'' => { let q = self.advance().unwrap(); NolValue::String(self.read_str(q)) }
             '0'..='9' | '-' => { let mut s = String::new(); while let Some(c) = self.peek() { if c.is_ascii_digit() || ".-eE+".contains(c) { s.push(self.advance().unwrap()); } else { break; } } if s.contains('.') || s.to_lowercase().contains('e') { NolValue::Float(s.parse().unwrap()) } else { NolValue::Int(s.parse().unwrap()) } }
             _ => { let mut s = String::new(); while let Some(c) = self.peek() { if c.is_alphabetic() { s.push(self.advance().unwrap()); } else { break; } } match s.as_str() { "true" => NolValue::Bool(true), "false" => NolValue::Bool(false), "null" => NolValue::Null, _ => panic!("Invalid: {}", s) } }
         }; self.depth -= 1; res
@@ -62,7 +119,6 @@ impl<'a> NolParser<'a> {
         }
         let mut is_m = false; if self.nole && self.peek() == Some('<') { self.advance(); if self.peek() == Some('<') { self.advance(); is_m = true; } else { self.pos -= 1; } }
         let key = if is_m { "<<".to_string() } else { self.read_key() };
-        if !self.nole && ["_env", "_interpolate", "_meta"].contains(&key.as_str()) { panic!("Reserved: {}", key); }
         self.skip_ws(); if self.advance() != Some(':') { panic!("Expected : for {}", key); }
         let val = self.parse_value(); if is_m { if !o.contains_key("<<") { o.insert("<<".to_string(), NolValue::Array(Vec::new())); } if let Some(NolValue::Array(a)) = o.get_mut("<<") { a.push(val); } } else { if o.contains_key(&key) { panic!("Duplicate: {}", key); } o.insert(key, val); }
     }
@@ -72,14 +128,33 @@ impl<'a> NolParser<'a> {
             self.skip_ws(); if self.peek().is_none() { break; }
             if self.peek() == Some('[') {
                 self.advance(); let mut is_a = false; if self.peek() == Some('*') { self.advance(); is_a = true; }
-                let mut path = String::new(); while let Some(c) = self.peek() { if c == ']' { self.advance(); break; } path.push(self.advance().unwrap()); }
-                let parts: Vec<String> = path.split('.').map(|s| s.to_string()).collect(); let mut curr = &mut root;
-                for (i, p) in parts.iter().enumerate() {
-                    let last = i == parts.len() - 1; if !curr.contains_key(p) { curr.insert(p.clone(), if last && is_a { NolValue::Array(Vec::new()) } else { NolValue::Object(BTreeMap::new()) }); }
-                    if last {
-                        if is_a { if let Some(NolValue::Array(a)) = curr.get_mut(p) { a.push(NolValue::Object(BTreeMap::new())); let idx = a.len() - 1; if let Some(NolValue::Object(o)) = a.get_mut(idx) { self.parse_into(o); } } }
-                        else if let Some(NolValue::Object(o)) = curr.get_mut(p) { self.parse_into(o); }
-                    } else if let Some(NolValue::Object(o)) = curr.get_mut(p) { curr = o; } else { panic!("Collision"); }
+                let mut path_s = String::new(); while let Some(c) = self.peek() { if c == ']' { self.advance(); break; } path_s.push(self.advance().unwrap()); }
+                let parts: Vec<String> = path_s.split('.').map(|s| s.to_string()).collect();
+                let mut curr = &mut root;
+                for p in parts.iter().take(parts.len() - 1) {
+                    if !curr.contains_key(p) || !matches!(curr.get(p), Some(NolValue::Object(_))) {
+                        curr.insert(p.clone(), NolValue::Object(BTreeMap::new()));
+                    }
+                    curr = match curr.get_mut(p).unwrap() {
+                        NolValue::Object(o) => o,
+                        _ => unreachable!(),
+                    };
+                }
+                let last_p = parts.last().unwrap();
+                if is_a {
+                    if !curr.contains_key(last_p) || !matches!(curr.get(last_p), Some(NolValue::Array(_))) {
+                        curr.insert(last_p.clone(), NolValue::Array(Vec::new()));
+                    }
+                    if let NolValue::Array(ref mut a) = curr.get_mut(last_p).unwrap() {
+                        a.push(NolValue::Object(BTreeMap::new()));
+                        let idx = a.len() - 1;
+                        if let Some(NolValue::Object(o)) = a.get_mut(idx) { self.parse_into(o); }
+                    }
+                } else {
+                    if !curr.contains_key(last_p) || !matches!(curr.get(last_p), Some(NolValue::Object(_))) {
+                        curr.insert(last_p.clone(), NolValue::Object(BTreeMap::new()));
+                    }
+                    if let NolValue::Object(ref mut o) = curr.get_mut(last_p).unwrap() { self.parse_into(o); }
                 }
             } else { self.parse_pair(&mut root); }
         } root
@@ -90,12 +165,11 @@ impl<'a> NolParser<'a> {
 pub struct Evaluator { anchors: BTreeMap<String, NolValue>, app_env: HashSet<String>, doc_env: HashSet<String> }
 impl Evaluator {
     pub fn new(app_env: Vec<String>) -> Self { Self { anchors: BTreeMap::new(), app_env: app_env.into_iter().collect(), doc_env: HashSet::new() } }
-    pub fn evaluate(&mut self, mut root: NolValue) -> NolValue { root = self.collect_meta(root); root = self.resolve_merges(root, 0); root = self.resolve_env(root); let root_clone = root.clone(); root = self.resolve_interp(root, &root_clone, 0); self.resolve_coerce(root) }
+    pub fn evaluate(&mut self, mut root: NolValue) -> Document { root = self.collect_meta(root); root = self.resolve_merges(root, 0); root = self.resolve_env(root); let root_clone = root.clone(); root = self.resolve_interp(root, &root_clone, 0); Document { root: self.resolve_coerce(root) } }
     fn collect_meta(&mut self, v: NolValue) -> NolValue {
         match v {
             NolValue::Object(mut o) => {
                 if let Some(NolValue::Array(ans)) = o.remove("_anchors") { for av in ans { if let NolValue::Object(mut a) = av { if let Some(NolValue::String(n)) = a.remove("name") { let val_raw = a.remove("value").unwrap(); let val = if val_raw == NolValue::Null { NolValue::Object(o.clone()) } else { val_raw }; let val = self.collect_meta(val); self.anchors.insert(n, val); } } } }
-                if let Some(NolValue::Object(mut a)) = o.remove("_anchor") { let n = if let Some(NolValue::String(n)) = a.remove("name") { n } else { panic!() }; let val_raw = a.remove("value").unwrap(); let val = if val_raw == NolValue::Null { NolValue::Object(o.clone()) } else { val_raw }; let val = self.collect_meta(val); self.anchors.insert(n, val.clone()); return val; }
                 if let Some(NolValue::Object(e)) = o.get("_env") { if let Some(NolValue::Array(al)) = e.get("allowed") { for x in al { if let NolValue::String(s) = x { self.doc_env.insert(s.clone()); } } } }
                 NolValue::Object(o.into_iter().map(|(k, val)| (k, self.collect_meta(val))).collect())
             }
@@ -114,7 +188,7 @@ impl Evaluator {
     }
     fn resolve_env(&mut self, v: NolValue) -> NolValue {
         match v {
-            NolValue::Object(o) => { if o.len() == 1 && o.contains_key("env") { if let Some(NolValue::String(var)) = o.get("env") { if self.app_env.is_empty() && self.doc_env.is_empty() || self.app_env.contains(var) || self.doc_env.contains(var) { let val = env::var(var).unwrap_or_default(); if val.len() > 65536 { panic!("Env size limit"); } return NolValue::String(val); } panic!("Env denied: {}", var); } } NolValue::Object(o.into_iter().map(|(k, val)| (k, self.resolve_env(val))).collect()) }
+            NolValue::Object(o) => { if o.len() == 1 && o.contains_key("env") { if let Some(NolValue::String(var)) = o.get("env") { if self.app_env.is_empty() && self.doc_env.is_empty() || self.app_env.contains(var) || self.doc_env.contains(var) { let val = env::var(var).unwrap_or_default(); return NolValue::String(val); } } } NolValue::Object(o.into_iter().map(|(k, val)| (k, self.resolve_env(val))).collect()) }
             NolValue::Array(a) => NolValue::Array(a.into_iter().map(|x| self.resolve_env(x)).collect()), _ => v
         }
     }
@@ -124,18 +198,17 @@ impl Evaluator {
             NolValue::String(s) if s.contains("${") => {
                 let mut res = String::new(); let mut i = 0; let b = s.as_bytes();
                 while i < b.len() { if b[i] == b'$' && i + 1 < b.len() && b[i+1] == b'{' { let start = i + 2; let mut end = start; while end < b.len() && b[end] != b'}' { end += 1; } if end == b.len() { panic!("Unclosed"); } let path = &s[start..end]; let mut curr = root; for p in path.split('.') { if let NolValue::Object(o) = curr { curr = o.get(p).expect("Undef interp"); } else { panic!("Undef interp"); } } let mut vs = match curr { NolValue::String(ref s) => s.clone(), _ => curr.dump(2, 0, true) }; if vs.contains("${") { vs = match self.resolve_interp(NolValue::String(vs), root, depth + 1) { NolValue::String(s) => s, _ => panic!() }; } res.push_str(&vs); i = end + 1; } else { res.push(b[i] as char); i += 1; } }
-                if res.len() > 10*1024*1024 { panic!("Interp size limit"); }
                 NolValue::String(res)
             }
             NolValue::Object(o) => NolValue::Object(o.into_iter().map(|(k, val)| (k, self.resolve_interp(val, root, depth))).collect()),
             NolValue::Array(a) => NolValue::Array(a.into_iter().map(|x| self.resolve_interp(x, root, depth)).collect()), _ => v
         }
     }
-    pub fn resolve_coerce(&mut self, v: NolValue) -> NolValue {
+    fn resolve_coerce(&mut self, v: NolValue) -> NolValue {
         match v {
             NolValue::Object(mut o) => { if let Some(NolValue::Object(mut c)) = o.remove("_coerce") { if let Some(NolValue::String(t)) = c.remove("type") { let val_raw = c.remove("value").unwrap(); let val = self.resolve_coerce(val_raw); let s = match val { NolValue::String(ref s) => s.clone(), _ => val.dump(2, 0, false) }; return match t.as_str() { "int" => NolValue::Int(s.parse().unwrap()), "float" => NolValue::Float(s.parse().unwrap()), "bool" => NolValue::Bool(s.to_lowercase() == "true"), _ => NolValue::String(s) }; } } NolValue::Object(o.into_iter().map(|(k, val)| (k, self.resolve_coerce(val))).collect()) }
             NolValue::Array(a) => NolValue::Array(a.into_iter().map(|x| self.resolve_coerce(x)).collect()), _ => v
         }
     }
 }
-pub fn parse(text: &str, app_env: Vec<String>) -> NolValue { let mut p = NolParser::new(text, true); let root = NolValue::Object(p.parse()); Evaluator::new(app_env).evaluate(root) }
+pub fn parse(text: &str, app_env: Vec<String>) -> Document { let mut p = NolParser::new(text, true); let root = NolValue::Object(p.parse()); Evaluator::new(app_env).evaluate(root) }

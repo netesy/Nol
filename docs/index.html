@@ -289,10 +289,10 @@ nol_doc_free(doc);</code></pre>
                             <h3 class="text-2xl font-bold text-slate-800">Python Implementation</h3>
                         </div>
                         <p class="text-slate-600 mb-4">Idiomatic Python implementation returning standard dicts/lists.</p>
-                        <pre><code>from nole import parse, Document
+                        <pre><code>from nole import parse
 
 doc = parse(input_str, app_env=["VAR"])
-print(doc['server']['port'])</code></pre>
+print(doc.get("server.port"))</code></pre>
                     </div>
 
                     <!-- JS -->
@@ -305,7 +305,7 @@ print(doc['server']['port'])</code></pre>
                         <pre><code>const { parse } = require('./nole.js');
 
 const doc = parse(input, ['VAR']);
-console.log(doc.server.port);</code></pre>
+console.log(doc.get('server.port'));</code></pre>
                     </div>
 
                     <!-- Rust -->
@@ -332,8 +332,8 @@ if let Some(Value::Int(p)) = doc.get("server.port") {
                         <p class="text-slate-600 mb-4">Namespaced implementation using stdClass and standard arrays.</p>
                         <pre><code>use Nole;
 
-$doc = Nole\parse($input, ['VAR' ]);
-echo $doc->server->port;</code></pre>
+$doc = Nole\parse($input, ['VAR']);
+echo $doc->get('server.port');</code></pre>
                     </div>
                 </div>
             </section>

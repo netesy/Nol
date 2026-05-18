@@ -1,30 +1,45 @@
-class NolError extends Error {
-    constructor(msg, line, col) {
-        super(`${msg} at ${line}:${col}`);
-        this.line = line; this.col = col;
+class Document {
+    constructor(root) { this.root = root; }
+    get(path) {
+        let curr = this.root;
+        for (const p of path.split('.')) {
+            if (curr === null || typeof curr !== 'object' || !(p in curr)) return null;
+            curr = curr[p];
+        }
+        return curr;
     }
+    exists(path) { return this.get(path) !== null; }
+    toObject() { return this.root; }
 }
-class NolParser {
-    constructor(text) {
-        this.text = text; this.pos = 0; this.line = 1; this.col = 1;
-        this.startTime = Date.now(); this.depth = 0;
+
+class Builder {
+    constructor() { this.root = {}; }
+    set(path, value) {
+        const parts = path.split('.');
+        let curr = this.root;
+        for (let i = 0; i < parts.length - 1; i++) {
+            const p = parts[i];
+            if (!(p in curr) || typeof curr[p] !== 'object') curr[p] = {};
+            curr = curr[p];
+        }
+        curr[parts[parts.length - 1]] = value;
+        return this;
     }
-    peek(n = 0) { return this.text[this.pos + n] || null; }
-    advance() {
-        const c = this.peek(); this.pos++;
-        if (c === '\n') { this.line++; this.col = 1; }
-        else this.col++;
-        return c;
-    }
+    build() { return new Document(this.root); }
+}
+
+class Parser {
+    constructor(text) { this.text = text; this.pos = 0; this.start = Date.now(); this.depth = 0; }
+    peek() { return this.text[this.pos] || null; }
+    advance() { return this.text[this.pos++] || null; }
     skipWs() {
         while (this.pos < this.text.length) {
-            const c = this.text[this.pos];
-            if (/\s/.test(c)) this.advance();
-            else if (c === '#') {
+            if (/\s/.test(this.text[this.pos])) this.advance();
+            else if (this.text[this.pos] === '#') {
                 this.advance();
                 if (this.peek() === '#') {
                     this.advance();
-                    while (this.pos < this.text.length - 1 && !(this.text[this.pos] === '#' && this.text[this.pos+1] === '#')) this.advance();
+                    while (this.pos < this.text.length - 1 && this.text.slice(this.pos, this.pos + 2) !== '##') this.advance();
                     if (this.pos < this.text.length) { this.advance(); this.advance(); }
                 } else {
                     while (this.pos < this.text.length && this.text[this.pos] !== '\n') this.advance();
@@ -35,18 +50,14 @@ class NolParser {
     readStr(q) {
         let s = "";
         while (this.pos < this.text.length) {
-            const c = this.peek();
-            if (c === q) { this.advance(); break; }
+            const c = this.advance();
+            if (c === q) return s;
             if (c === '\\') {
-                this.advance(); const e = this.advance();
-                if (e === 'u') {
-                    let h = this.text.slice(this.pos, this.pos + 4); this.pos += 4;
-                    s += String.fromCharCode(parseInt(h, 16));
-                } else if (e === 'U') {
-                    let h = this.text.slice(this.pos, this.pos + 8); this.pos += 8;
-                    s += String.fromCodePoint(parseInt(h, 16));
-                } else s += {'n': '\n', 'r': '\r', 't': '\t'}[e] || e;
-            } else s += this.advance();
+                const e = this.advance();
+                if (e === 'u') { s += String.fromCharCode(parseInt(this.text.slice(this.pos, this.pos + 4), 16)); this.pos += 4; }
+                else if (e === 'U') { s += String.fromCodePoint(parseInt(this.text.slice(this.pos, this.pos + 8), 16)); this.pos += 8; }
+                else { s += { 'n': '\n', 'r': '\r', 't': '\t' }[e] || e; }
+            } else s += c;
         }
         return s;
     }
@@ -59,77 +70,80 @@ class NolParser {
     }
     parseValue() {
         this.skipWs();
-        if (Date.now() - this.startTime > 1000) throw new NolError("Timeout", this.line, this.col);
-        if (++this.depth > 100) throw new NolError("Max depth", this.line, this.col);
+        if (Date.now() - this.start > 1000) throw new Error("Timeout");
+        if (++this.depth > 100) throw new Error("Depth");
         const c = this.peek(); let res;
         if (c === '{') {
             this.advance(); const o = {};
-            while (this.pos < this.text.length) {
-                this.skipWs(); if (this.peek() === '}') { this.advance(); break; }
-                this.parsePair(o); this.skipWs(); if (this.peek() === ',') this.advance();
+            while (this.peek() && this.peek() !== '}') {
+                this.skipWs(); const [k, v] = this.parsePair(); o[k] = v;
+                this.skipWs(); if (this.peek() === ',') this.advance();
             }
+            if (this.peek() === '}') this.advance();
             res = o;
         } else if (c === '[') {
             this.advance(); const a = [];
-            while (this.pos < this.text.length) {
-                this.skipWs(); if (this.peek() === ']') { this.advance(); break; }
-                a.push(this.parseValue()); this.skipWs(); if (this.peek() === ',') this.advance();
+            while (this.peek() && this.peek() !== ']') {
+                this.skipWs(); a.push(this.parseValue());
+                this.skipWs(); if (this.peek() === ',') this.advance();
             }
+            if (this.peek() === ']') this.advance();
             res = a;
         } else if (c === '"' || c === "'") res = this.readStr(this.advance());
-        else if (/[0-9-]/.test(c)) {
-            let b = ""; while (this.peek() && /[0-9.eE+-]/.test(this.peek())) b += this.advance();
-            res = b.includes('.') || /[eE]/.test(b) ? parseFloat(b) : parseInt(b);
+        else if (c && (/[0-9]/.test(c) || c === '-')) {
+            let s = "";
+            while (this.pos < this.text.length && /[0-9.-eE+]/.test(this.text[this.pos])) s += this.advance();
+            res = s.includes('.') || /e/i.test(s) ? parseFloat(s) : parseInt(s, 10);
         } else {
-            let b = ""; while (this.peek() && /[a-z]/.test(this.peek())) b += this.advance();
-            if (b === "true") res = true; else if (b === "false") res = false; else if (b === "null") res = null;
-            else throw new NolError("Invalid value: " + b, this.line, this.col);
+            let s = "";
+            while (this.pos < this.text.length && /[a-zA-Z]/.test(this.text[this.pos])) s += this.advance();
+            if (s === "true") res = true;
+            else if (s === "false") res = false;
+            else if (s === "null") res = null;
+            else throw new Error("Invalid value: " + s);
         }
         this.depth--; return res;
     }
-    parsePair(obj) {
-        this.skipWs(); const key = this.readKey().normalize('NFC');
-        if (["_env", "_interpolate", "_meta"].includes(key)) throw new Error("Reserved key in NOL: " + key);
-        this.skipWs(); if (this.advance() !== ':') throw new NolError("Expected :", this.line, this.col);
-        const val = this.parseValue();
-        if (Object.prototype.hasOwnProperty.call(obj, key)) throw new Error("Duplicate key: " + key);
-        obj[key] = val;
-    }
-    parseInto(obj) {
-        while (this.pos < this.text.length) {
-            this.skipWs(); if (!this.peek() || this.peek() === '[') break;
-            this.parsePair(obj);
-        }
+    parsePair() {
+        const k = this.readKey();
+        if (["_env", "_interpolate", "_meta"].includes(k)) throw new Error("Reserved: " + k);
+        this.skipWs(); if (this.peek() === ':') this.advance();
+        return [k, this.parseValue()];
     }
     parse() {
         const root = {};
         while (this.pos < this.text.length) {
             this.skipWs(); if (!this.peek()) break;
             if (this.peek() === '[') {
-                this.advance(); let path = ""; while (this.peek() && this.peek() !== ']') path += this.advance();
+                this.advance(); let path = "";
+                while (this.peek() && this.peek() !== ']') path += this.advance();
                 if (this.peek() === ']') this.advance();
                 const parts = path.split('.'); let curr = root;
-                for (let i = 0; i < parts.length; i++) {
-                    const p = parts[i], last = i === parts.length - 1;
-                    if (!curr[p]) curr[p] = {};
-                    if (last) this.parseInto(curr[p]);
-                    else curr = curr[p];
+                for (let i = 0; i < parts.length - 1; i++) {
+                    const p = parts[i];
+                    if (!(p in curr) || typeof curr[p] !== 'object') curr[p] = {};
+                    curr = curr[p];
                 }
-            } else this.parsePair(root);
+                const last = parts[parts.length - 1];
+                if (!(last in curr) || typeof curr[last] !== 'object') curr[last] = {};
+                this.parseInto(curr[last]);
+            } else {
+                const [k, v] = this.parsePair();
+                if (k in root) throw new Error("Dup: " + k);
+                root[k] = v;
+            }
         }
-        return root;
+        return new Document(root);
+    }
+    parseInto(o) {
+        while (this.pos < this.text.length) {
+            this.skipWs(); if (this.peek() === '[' || !this.peek()) break;
+            const [k, v] = this.parsePair();
+            if (k in o) throw new Error("Dup: " + k);
+            o[k] = v;
+        }
     }
 }
-function parse(text) { return new NolParser(text).parse(); }
-function dump(v, indent = 2, level = 0, root = false) {
-    if (v === null) return "null"; if (typeof v === 'boolean') return v ? "true" : "false";
-    if (typeof v === 'number') { let s = v.toFixed(5); while (s.endsWith('0')) s = s.slice(0, -1); if (s.endsWith('.')) s += '0'; return s; }
-    if (typeof v === 'string') return root ? v : `"${v}"`;
-    if (Array.isArray(v)) return "[" + v.map(x => dump(x, indent, level + 1)).join(", ") + "]";
-    const pad = " ".repeat(level * indent), nextPad = " ".repeat((level + 1) * indent);
-    const keys = Object.keys(v).sort();
-    if (root) return keys.map(k => `${k}: ${dump(v[k], indent, level + 1)}`).join("\n");
-    if (keys.length === 0) return "{}";
-    return "{" + keys.map(k => `\n${nextPad}${k}: ${dump(v[k], indent, level + 1)}`).join(",") + `\n${pad}}`;
-}
-module.exports = { parse, dump };
+
+function parse(text) { return new Parser(text).parse(); }
+module.exports = { parse, Document, Builder };

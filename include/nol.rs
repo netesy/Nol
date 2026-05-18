@@ -26,6 +26,53 @@ impl NolValue {
     }
 }
 
+pub struct Document {
+    pub root: BTreeMap<String, NolValue>,
+}
+
+impl Document {
+    pub fn get(&self, path: &str) -> Option<&NolValue> {
+        let parts: Vec<&str> = path.split('.').collect();
+        let mut curr = &self.root;
+        for (i, p) in parts.iter().enumerate() {
+            if i == parts.len() - 1 {
+                return curr.get(*p);
+            } else {
+                match curr.get(*p) {
+                    Some(NolValue::Object(o)) => curr = o,
+                    _ => return None,
+                }
+            }
+        }
+        None
+    }
+    pub fn exists(&self, path: &str) -> bool { self.get(path).is_some() }
+}
+
+pub struct Builder {
+    pub root: BTreeMap<String, NolValue>,
+}
+
+impl Builder {
+    pub fn new() -> Self { Self { root: BTreeMap::new() } }
+    pub fn set(mut self, path: &str, value: NolValue) -> Self {
+        let parts: Vec<String> = path.split('.').map(|s| s.to_string()).collect();
+        let mut curr = &mut self.root;
+        for p in parts.iter().take(parts.len() - 1) {
+            if !curr.contains_key(p) || !matches!(curr.get(p), Some(NolValue::Object(_))) {
+                curr.insert(p.clone(), NolValue::Object(BTreeMap::new()));
+            }
+            curr = match curr.get_mut(p).unwrap() {
+                NolValue::Object(o) => o,
+                _ => unreachable!(),
+            };
+        }
+        curr.insert(parts.last().unwrap().clone(), value);
+        self
+    }
+    pub fn build(self) -> Document { Document { root: self.root } }
+}
+
 pub struct NolParser<'a> { text: &'a str, pos: usize, start: Instant, depth: usize }
 impl<'a> NolParser<'a> {
     pub fn new(text: &'a str) -> Self { Self { text, pos: 0, start: Instant::now(), depth: 0 } }
@@ -39,7 +86,7 @@ impl<'a> NolParser<'a> {
         self.skip_ws(); if self.start.elapsed() > Duration::from_secs(1) { panic!("Timeout"); } self.depth += 1; if self.depth > 100 { panic!("Depth"); }
         let c = self.peek().expect("EOF");
         let res = match c {
-            '{' => { self.advance(); let mut o = BTreeMap::new(); while let Some(_) = self.peek() { self.skip_ws(); if self.peek() == Some('}') { self.advance(); break; } self.parse_pair(&mut o); self.skip_ws(); if self.peek() == Some(',') { self.advance(); } } NolValue::Object(o) }
+            '{' => { self.advance(); let mut o = BTreeMap::new(); while let Some(_) = self.peek() { self.skip_ws(); if self.peek() == Some('}') { self.advance(); break; } self.parse_pair(&mut o); self.skip_ws() ; if self.peek() == Some(',') { self.advance(); } } NolValue::Object(o) }
             '[' => { self.advance(); let mut a = Vec::new(); while let Some(_) = self.peek() { self.skip_ws(); if self.peek() == Some(']') { self.advance(); break; } a.push(self.parse_value()); self.skip_ws(); if self.peek() == Some(',') { self.advance(); } } NolValue::Array(a) }
             '"' | '\'' => { let q = self.advance().unwrap(); NolValue::String(self.read_str(q)) }
             '0'..='9' | '-' => { let mut s = String::new(); while let Some(c) = self.peek() { if c.is_ascii_digit() || ".-eE+".contains(c) { s.push(self.advance().unwrap()); } else { break; } } if s.contains('.') || s.to_lowercase().contains('e') { NolValue::Float(s.parse().unwrap()) } else { NolValue::Int(s.parse().unwrap()) } }
@@ -51,20 +98,33 @@ impl<'a> NolParser<'a> {
         self.skip_ws(); if self.advance() != Some(':') { panic!("Expected : for {}", key); }
         let val = self.parse_value(); if o.contains_key(&key) { panic!("Duplicate: {}", key); } o.insert(key, val);
     }
-    pub fn parse(&mut self) -> BTreeMap<String, NolValue> {
+    pub fn parse(&mut self) -> Document {
         let mut root = BTreeMap::new();
         while self.pos < self.text.len() {
             self.skip_ws(); if self.peek().is_none() { break; }
             if self.peek() == Some('[') {
-                self.advance(); let mut path = String::new(); while let Some(c) = self.peek() { if c == ']' { self.advance(); break; } path.push(self.advance().unwrap()); }
-                let parts: Vec<String> = path.split('.').map(|s| s.to_string()).collect(); let mut curr = &mut root;
-                for (i, p) in parts.iter().enumerate() {
-                    let last = i == parts.len() - 1; if !curr.contains_key(p) { curr.insert(p.clone(), NolValue::Object(BTreeMap::new())); }
-                    if let Some(NolValue::Object(o)) = curr.get_mut(p) { if last { self.parse_into(o); } else { curr = o; } }
+                self.advance(); let mut path_s = String::new(); while let Some(c) = self.peek() { if c == ']' { self.advance(); break; } path_s.push(self.advance().unwrap()); }
+                let parts: Vec<String> = path_s.split('.').map(|s| s.to_string()).collect();
+                let mut curr = &mut root;
+                for p in parts.iter().take(parts.len() - 1) {
+                    if !curr.contains_key(p) || !matches!(curr.get(p), Some(NolValue::Object(_))) {
+                        curr.insert(p.clone(), NolValue::Object(BTreeMap::new()));
+                    }
+                    curr = match curr.get_mut(p).unwrap() {
+                        NolValue::Object(o) => o,
+                        _ => unreachable!(),
+                    };
+                }
+                let last_p = parts.last().unwrap();
+                if !curr.contains_key(last_p) || !matches!(curr.get(last_p), Some(NolValue::Object(_))) {
+                    curr.insert(last_p.clone(), NolValue::Object(BTreeMap::new()));
+                }
+                if let NolValue::Object(ref mut o) = curr.get_mut(last_p).unwrap() {
+                    self.parse_into(o);
                 }
             } else { self.parse_pair(&mut root); }
-        } root
+        } Document { root }
     }
     fn parse_into(&mut self, o: &mut BTreeMap<String, NolValue>) { while self.pos < self.text.len() { self.skip_ws(); match self.peek() { Some('[') | None => break, _ => self.parse_pair(o) } } }
 }
-pub fn parse(text: &str) -> BTreeMap<String, NolValue> { let mut p = NolParser::new(text); p.parse() }
+pub fn parse(text: &str) -> Document { let mut p = NolParser::new(text); p.parse() }
